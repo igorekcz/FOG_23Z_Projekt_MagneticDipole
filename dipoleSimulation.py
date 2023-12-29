@@ -50,7 +50,7 @@ def checkValues(values):
         current = float(values['current'])
         radius = float(values['radius'])
         omega = float(values['omega'])
-        time = float(values['time'])
+        time = int(values['time'])
         axisLength = float(values['axisLength'])
         fps = 30 if values['fps30'] else 60
         plane = 'XY' if values['xy'] else 'YZ'
@@ -67,7 +67,7 @@ def checkValues(values):
         return False
     
 def calculateFieldFunction():
-    t = np.arange(0, time, 1/fps)
+    t = np.arange(0, (2 * np.pi)/omega, 1/fps)
     r = np.linspace(radius + 0.1, axisLength * np.sqrt(2), 100 * int(np.sqrt(axisLength)))
     if plane == "XY":
         theta = np.full(int(fps*time), np.pi/2)
@@ -75,16 +75,16 @@ def calculateFieldFunction():
         theta = np.linspace(0, 2*np.pi, 100)
 
     R, Theta, T = np.meshgrid(r, theta, t, indexing='ij')
-    Y = R * np.sin(Theta)
-    X = R * np.sin(Theta)
-    Z = R * np.cos(Theta)
+    Thetap, Rp = np.meshgrid(theta, r)
+    Y = Rp * np.sin(Thetap)
+    Z = Rp * np.cos(Thetap)
 
     if function == "magnetic":
         B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
-        return B, R, Theta, Z, Y, X, t
+        return B, Z, Y, t
     elif function == "electric":
         E = ((u0 * m0 * omega ** 2)/(4 * np.pi * c)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
-        return E, R, Theta, Z, Y, t
+        return E, Z, Y, t
     
 def makePlot():
     ax.set_xlim(-axisLength, axisLength)
@@ -93,9 +93,9 @@ def makePlot():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         if plane == "XY":
-            c = ax.pcolormesh(X[:, :, 0], Y[:, :, 0], fun_val[:, :, 0], cmap='hot')
+            c = ax.pcolormesh(Y[:, :, 0], Y[:, :, 0], fun_val[:, :, 0], cmap='hot')
         elif plane == "YZ":
-            c = ax.pcolormesh(Y[:, :, 0], Z[:, :, 0], fun_val[:, :, 0], cmap='hot')
+            c = ax.pcolormesh(Y, Z, fun_val[:, :, 0], cmap='afmhot')
     plt.grid(True)
     plt.colorbar(c, label=f"{function.capitalize()} Field Value")
     plt.title('Function Z at t=0')
@@ -115,15 +115,15 @@ def makePlot():
 
         plt.savefig('frames/frame0.png')
 
-        for i in range(1, len(t)):
-            print("Renderowanie klatek", i + 1, 'z', t.size)
+        for i in range(1, min(len(t), time*fps)):
+            print("Renderowanie klatek", i + 1, 'z', min(t.size, time*fps))
             window.refresh()
             c.set_array(fun_val[:, :, i].flatten())  # Update the color values
             plt.title(f'Function Z at t={t[i]:.2f}')
             plt.savefig(f'frames/frame{i}.png')
 
         images = []
-        for i in range(0, len(t)):
+        for i in range(0, min(len(t), time*fps)):
             images.append(imageio.imread(f'frames/frame{i}.png'))
         print("Tworzenie pliku mp4...")
         window.refresh()
@@ -131,10 +131,15 @@ def makePlot():
         print("Proces zakończony sukcesem, utworzono animację wideo MP4")
     
     else:
-        for i in range(1, len(t)):
-            c.set_array(fun_val[:, :, i].flatten())  # Update the color values
-            plt.title(f'Function Z at t={t[i]:.2f}')
-            plt.pause(0.01)  # Add a short pause for visualization
+        for j in range(int(time/(2*np.pi/omega) + 1)):
+            for i in range(1, len(t)):
+                c.set_array(fun_val[:, :, i].flatten())  # Update the color values
+                plt.title(f'Function Z at t={t[i] + j * (2*np.pi)/omega:.2f}')
+                if t[i] + j * (2*np.pi)/omega >= time:
+                    break
+                plt.pause(0.01)  # Add a short pause for visualization
+            if t[i] + j * (2*np.pi)/omega >= time:
+                break
         plt.show()
 
 if __name__ == '__main__':
@@ -148,7 +153,7 @@ if __name__ == '__main__':
             current, radius, omega, time, axisLength, fps, plane, function, mp4 = checkValues(values)
             m0 = current*np.pi*radius**2
 
-            fun_val, R, Theta, Z, Y, X, t = calculateFieldFunction()
+            fun_val, Z, Y, t = calculateFieldFunction()
 
             fig = plt.figure(figsize=(8, 8), dpi=100)
             ax = fig.add_subplot(111)
