@@ -1,7 +1,5 @@
 import numpy as np 
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, Normalize
-from matplotlib.ticker import MaxNLocator
 import imageio.v2 as imageio
 import os
 import PySimpleGUI as sg
@@ -11,6 +9,9 @@ import warnings
 # Define constants
 c = 299792458 # Speed of light in m/s
 u0 = 4*np.pi*1e-7 # Permeability of free space in H/m
+
+global windowClosed
+windowClosed = False
 
 # Define functions
 
@@ -23,7 +24,6 @@ def runGUI():
             [sg.Text('Czas symulacji [s]')],
             [sg.Text('Długość osi [j]')],
             [sg.Text('Klatki na sekundę [fps]')],
-            [sg.Text('Wybór płaszczyzny')],
             [sg.Text('Wybór funkcji')],
             [sg.Text('Stworzyć plik mp4?')]]
     
@@ -33,7 +33,6 @@ def runGUI():
             [sg.InputText('5', key='time')],
             [sg.InputText('1', key='axisLength')],
             [sg.Radio('30 FPS', 'fps', default=True, key='fps30'), sg.Radio('60 FPS', 'fps', key='fps60')],
-            [sg.Radio('XY', 'plane', default=True, key='xy'),  sg.Radio('YZ', 'plane', key='yz')],
             [sg.OptionMenu(['Pole magnetyczne', 'Pole elektryczne'], 'Pole magnetyczne', key='function')],
             [sg.Checkbox('Tak', default=False, key='mp4')]]
     
@@ -53,7 +52,6 @@ def checkValues(values):
         time = int(values['time'])
         axisLength = float(values['axisLength'])
         fps = 30 if values['fps30'] else 60
-        plane = 'XY' if values['xy'] else 'YZ'
         function = 'magnetic' if values['function'] == 'Pole magnetyczne' else 'electric'
         mp4 = values['mp4']
         
@@ -61,7 +59,7 @@ def checkValues(values):
             print('Wartości muszą być dodatnie!')
             return False
 
-        return current, radius, omega, time, axisLength, fps, plane, function, mp4
+        return current, radius, omega, time, fps, function, mp4, axisLength
     except ValueError:
         print('Wartości muszą być liczbami!')
         return False
@@ -69,10 +67,7 @@ def checkValues(values):
 def calculateFieldFunction():
     t = np.arange(0, (2 * np.pi)/omega, 1/fps)
     r = np.linspace(radius + 0.1, axisLength * np.sqrt(2), 100 * int(np.sqrt(axisLength)))
-    if plane == "XY":
-        theta = np.full(int(fps*time), np.pi/2)
-    elif plane == "YZ":
-        theta = np.linspace(0, 2*np.pi, 100)
+    theta = np.linspace(0, 2*np.pi, 100)
 
     R, Theta, T = np.meshgrid(r, theta, t, indexing='ij')
     Thetap, Rp = np.meshgrid(theta, r)
@@ -92,13 +87,16 @@ def makePlot():
     ax.set_aspect('equal', adjustable='box')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        if plane == "XY":
-            c = ax.pcolormesh(Y[:, :, 0], Y[:, :, 0], fun_val[:, :, 0], cmap='hot')
-        elif plane == "YZ":
-            c = ax.pcolormesh(Y, Z, fun_val[:, :, 0], cmap='afmhot')
+        c = ax.pcolormesh(Y, Z, fun_val[:, :, 0], cmap='afmhot')
     plt.grid(True)
     plt.colorbar(c, label=f"{function.capitalize()} Field Value")
-    plt.title('Function Z at t=0')
+    plt.xlabel('Z [m]')
+    if function == "magnetic":
+        plt.ylabel('Y [m]')
+        plt.title('Magnetic field function at t=0')
+    elif function == "electric":
+        plt.ylabel('X [m]')
+        plt.title('Electric field function at t=0')
 
     if mp4:
         try:
@@ -119,7 +117,10 @@ def makePlot():
             print("Renderowanie klatek", i + 1, 'z', min(t.size, time*fps))
             window.refresh()
             c.set_array(fun_val[:, :, i].flatten())  # Update the color values
-            plt.title(f'Function Z at t={t[i]:.2f}')
+            if function == "magnetic":
+                plt.title(f'Magnetic field function at t={t[i]:.2f}')
+            elif function == "electric":
+                plt.title(f'Electric field function at t={t[i]:.2f}')
             plt.savefig(f'frames/frame{i}.png')
 
         images = []
@@ -131,16 +132,27 @@ def makePlot():
         print("Proces zakończony sukcesem, utworzono animację wideo MP4")
     
     else:
+        global windowClosed
+        fig.canvas.mpl_connect('close_event', on_close)
         for j in range(int(time/(2*np.pi/omega) + 1)):
             for i in range(1, len(t)):
                 c.set_array(fun_val[:, :, i].flatten())  # Update the color values
-                plt.title(f'Function Z at t={t[i] + j * (2*np.pi)/omega:.2f}')
-                if t[i] + j * (2*np.pi)/omega >= time:
+                if function == "magnetic":
+                    plt.title(f'Magnetic field function at t={t[i] + j * (2*np.pi)/omega:.2f}')
+                elif function == "electric":
+                    plt.title(f'Electric field function at t={t[i] + j * (2*np.pi)/omega:.2f}')
+                if t[i] + j * (2*np.pi)/omega >= time or windowClosed:
                     break
                 plt.pause(0.01)  # Add a short pause for visualization
-            if t[i] + j * (2*np.pi)/omega >= time:
+            if t[i] + j * (2*np.pi)/omega >= time or windowClosed:
+                windowClosed = False
+                plt.close()
                 break
         plt.show()
+
+def on_close(event):
+    global windowClosed
+    windowClosed = True
 
 if __name__ == '__main__':
     window = runGUI()
@@ -150,7 +162,7 @@ if __name__ == '__main__':
             window.close()
             break
         if checkValues(values):
-            current, radius, omega, time, axisLength, fps, plane, function, mp4 = checkValues(values)
+            current, radius, omega, time, fps, function, mp4, axisLength = checkValues(values)
             m0 = current*np.pi*radius**2
 
             fun_val, Z, Y, t = calculateFieldFunction()
