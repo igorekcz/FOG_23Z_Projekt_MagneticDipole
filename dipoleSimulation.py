@@ -5,6 +5,8 @@ import os
 import PySimpleGUI as sg
 import glob
 import warnings
+from matplotlib.colors import SymLogNorm
+from matplotlib.ticker import LogFormatter
 
 # Define constants
 c = 299792458 # Speed of light in m/s
@@ -27,13 +29,13 @@ def runGUI():
             [sg.Text('Wybór funkcji')],
             [sg.Text('Stworzyć plik mp4?')]]
     
-    col2 = [[sg.InputText('1', key='current')],
+    col2 = [[sg.InputText('10', key='current')],
             [sg.InputText('0.01', key='radius')],
             [sg.InputText('1', key='omega')],
             [sg.InputText('5', key='time')],
             [sg.InputText('1', key='axisLength')],
             [sg.Radio('30 FPS', 'fps', default=True, key='fps30'), sg.Radio('60 FPS', 'fps', key='fps60')],
-            [sg.OptionMenu(['Pole magnetyczne', 'Pole elektryczne'], 'Pole magnetyczne', key='function')],
+            [sg.OptionMenu(['Pole magnetyczne (XZ)', 'Pole elektryczne (XZ)', 'Pole magnetyczne (XY)', 'Pole elektryczne (XY)'], 'Pole magnetyczne (XZ)', key='function')],
             [sg.Checkbox('Tak', default=False, key='mp4')]]
     
     layout = [[sg.Text('Symulacja dipola magnetycznego')],
@@ -52,7 +54,7 @@ def checkValues(values):
         time = int(values['time'])
         axisLength = float(values['axisLength'])
         fps = 30 if values['fps30'] else 60
-        function = 'magnetic' if values['function'] == 'Pole magnetyczne' else 'electric'
+        function = 'magneticXZ' if values['function'] == 'Pole magnetyczne (XZ)' else 'electricXZ' if values['function'] == 'Pole elektryczne (XZ)' else 'magneticXY' if values['function'] == 'Pole magnetyczne (XY)' else 'electricXY'
         mp4 = values['mp4']
         
         if current < 0 or radius < 0 or omega < 0 or time < 0 or axisLength < 0:
@@ -66,20 +68,26 @@ def checkValues(values):
     
 def calculateFieldFunction():
     t = np.arange(0, (2 * np.pi)/omega, 1/fps)
-    r = np.linspace(radius + 0.1, axisLength * np.sqrt(2), 100 * int(np.sqrt(axisLength)))
-    theta = np.linspace(0, 2*np.pi, 100)
+    r = np.linspace(radius + 0.1, axisLength * np.sqrt(2), 300)
+    theta = np.linspace(0, 2*np.pi, 360)
 
     R, Theta, T = np.meshgrid(r, theta, t, indexing='ij')
     Thetap, Rp = np.meshgrid(theta, r)
     Y = Rp * np.sin(Thetap)
-    Z = Rp * np.cos(Thetap)
+    X = Rp * np.cos(Thetap)
 
-    if function == "magnetic":
+    if function == "magneticXZ":
         B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
-        return B, Z, Y, t
-    elif function == "electric":
+        return B, X, Y, t
+    elif function == "electricXZ":
         E = ((u0 * m0 * omega ** 2)/(4 * np.pi * c)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
-        return E, Z, Y, t
+        return E, X, Y, t
+    elif function == "magneticXY":
+        B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (1/R) * np.cos(omega * (T-R/c))
+        return B, X, Y, t
+    elif function == "electricXY":
+        E = ((u0 * m0 * omega ** 2)/(4 * np.pi * c)) * (1/R) * np.cos(omega * (T-R/c))
+        return E, X, Y, t
     
 def makePlot():
     ax.set_xlim(-axisLength, axisLength)
@@ -87,16 +95,26 @@ def makePlot():
     ax.set_aspect('equal', adjustable='box')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        c = ax.pcolormesh(Y, Z, fun_val[:, :, 0], cmap='afmhot')
+        c = ax.pcolormesh(X, Y, fun_val[:, :, 0],
+                        norm=SymLogNorm(linthresh=0 + fun_val.max()/10, linscale=0.03, vmin=fun_val.min(), vmax=fun_val.max()),
+                        cmap='twilight', shading='auto')
     plt.grid(True)
-    plt.colorbar(c, label=f"{function.capitalize()} Field Value")
-    plt.xlabel('Z [m]')
-    if function == "magnetic":
+    formatter = LogFormatter(10, labelOnlyBase=False) 
+    plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value", format=formatter)
+    if function == "magneticXZ" or function == "electricXZ":
+        plt.xlabel('X [m]')
+        plt.ylabel('Z [m]')
+        if function == "magneticXZ":
+            plt.title('Magnetic field function at t=0')
+        elif function == "electricXZ":
+            plt.title('Electric field function at t=0')
+    elif function == "electricXY" or function == "magneticXY":
+        plt.xlabel('X [m]')
         plt.ylabel('Y [m]')
-        plt.title('Magnetic field function at t=0')
-    elif function == "electric":
-        plt.ylabel('X [m]')
-        plt.title('Electric field function at t=0')
+        if function == "magneticXY":
+            plt.title('Magnetic field function at t=0')
+        elif function == "electricXY":
+            plt.title('Electric field function at t=0')
 
     if mp4:
         try:
@@ -117,9 +135,9 @@ def makePlot():
             print("Renderowanie klatek", i + 1, 'z', min(t.size, time*fps))
             window.refresh()
             c.set_array(fun_val[:, :, i].flatten())  # Update the color values
-            if function == "magnetic":
+            if function == "magneticXZ" or function == "magneticXY":
                 plt.title(f'Magnetic field function at t={t[i]:.2f}')
-            elif function == "electric":
+            elif function == "electricXZ" or function == "electricXY":
                 plt.title(f'Electric field function at t={t[i]:.2f}')
             plt.savefig(f'frames/frame{i}.png')
 
@@ -137,18 +155,18 @@ def makePlot():
         for j in range(int(time/(2*np.pi/omega) + 1)):
             for i in range(1, len(t)):
                 c.set_array(fun_val[:, :, i].flatten())  # Update the color values
-                if function == "magnetic":
+                if function == "magneticXZ" or function == "magneticXY":
                     plt.title(f'Magnetic field function at t={t[i] + j * (2*np.pi)/omega:.2f}')
-                elif function == "electric":
+                elif function == "electricXZ" or function == "electricXY":
                     plt.title(f'Electric field function at t={t[i] + j * (2*np.pi)/omega:.2f}')
                 if t[i] + j * (2*np.pi)/omega >= time or windowClosed:
                     break
                 plt.pause(0.01)  # Add a short pause for visualization
             if t[i] + j * (2*np.pi)/omega >= time or windowClosed:
-                windowClosed = False
                 plt.close()
                 break
         plt.show()
+        windowClosed = False
 
 def on_close(event):
     global windowClosed
@@ -165,7 +183,7 @@ if __name__ == '__main__':
             current, radius, omega, time, fps, function, mp4, axisLength = checkValues(values)
             m0 = current*np.pi*radius**2
 
-            fun_val, Z, Y, t = calculateFieldFunction()
+            fun_val, X, Y, t = calculateFieldFunction()
 
             fig = plt.figure(figsize=(8, 8), dpi=100)
             ax = fig.add_subplot(111)
