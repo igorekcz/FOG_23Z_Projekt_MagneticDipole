@@ -6,7 +6,7 @@ import PySimpleGUI as sg
 import glob
 import warnings
 from matplotlib.colors import SymLogNorm
-from matplotlib.ticker import LogFormatter
+
 
 # Define constants
 c = 299792458 # Speed of light in m/s
@@ -27,6 +27,7 @@ def runGUI():
             [sg.Text('Długość osi [j]')],
             [sg.Text('Klatki na sekundę [fps]')],
             [sg.Text('Wybór funkcji')],
+            [sg.Text('Skala logarytmiczna')],
             [sg.Text('Stworzyć plik mp4?')]]
     
     col2 = [[sg.InputText('10', key='current')],
@@ -36,6 +37,7 @@ def runGUI():
             [sg.InputText('1', key='axisLength')],
             [sg.Radio('30 FPS', 'fps', default=True, key='fps30'), sg.Radio('60 FPS', 'fps', key='fps60')],
             [sg.OptionMenu(['Pole magnetyczne (XZ)', 'Pole elektryczne (XZ)', 'Pole magnetyczne (XY)', 'Pole elektryczne (XY)'], 'Pole magnetyczne (XZ)', key='function')],
+            [sg.Checkbox('Tak', default=False, key='log')],
             [sg.Checkbox('Tak', default=False, key='mp4')]]
     
     layout = [[sg.Text('Symulacja dipola magnetycznego')],
@@ -55,13 +57,14 @@ def checkValues(values):
         axisLength = float(values['axisLength'])
         fps = 30 if values['fps30'] else 60
         function = 'magneticXZ' if values['function'] == 'Pole magnetyczne (XZ)' else 'electricXZ' if values['function'] == 'Pole elektryczne (XZ)' else 'magneticXY' if values['function'] == 'Pole magnetyczne (XY)' else 'electricXY'
+        log = values['log']
         mp4 = values['mp4']
         
         if current < 0 or radius < 0 or omega < 0 or time < 0 or axisLength < 0:
             print('Wartości muszą być dodatnie!')
             return False
 
-        return current, radius, omega, time, fps, function, mp4, axisLength
+        return current, radius, omega, time, fps, function, mp4, axisLength, log
     except ValueError:
         print('Wartości muszą być liczbami!')
         return False
@@ -95,12 +98,18 @@ def makePlot():
     ax.set_aspect('equal', adjustable='box')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        c = ax.pcolormesh(X, Y, fun_val[:, :, 0],
-                        norm=SymLogNorm(linthresh=0 + fun_val.max()/10, linscale=0.03, vmin=fun_val.min(), vmax=fun_val.max()),
+        if log:
+            c = ax.pcolormesh(X, Y, fun_val[:, :, 0],
+                        norm=SymLogNorm(linthresh=0 + fun_val.max()/100, linscale=0.1, vmin=fun_val.min(), vmax=fun_val.max()),
                         cmap='twilight', shading='auto')
+            cbar = plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value", format="%.2e")
+            order_of_magnitude = int(0 - np.log10(fun_val.max())) + 1
+            ticks = [fun_val.min()] + [-10**i for i in range(-order_of_magnitude, -order_of_magnitude - 3, -1)] + [0] + [10**i for i in range(-order_of_magnitude, -order_of_magnitude - 3, -1)] + [fun_val.max()]
+            cbar.set_ticks(ticks)
+        else:
+            c = ax.pcolormesh(X, Y, fun_val[:, :, 0], cmap='twilight', shading='auto')
+            plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value")
     plt.grid(True)
-    formatter = LogFormatter(10, labelOnlyBase=False) 
-    plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value", format=formatter)
     if function == "magneticXZ" or function == "electricXZ":
         plt.xlabel('X [m]')
         plt.ylabel('Z [m]')
@@ -180,12 +189,12 @@ if __name__ == '__main__':
             window.close()
             break
         if checkValues(values):
-            current, radius, omega, time, fps, function, mp4, axisLength = checkValues(values)
+            current, radius, omega, time, fps, function, mp4, axisLength, log = checkValues(values)
             m0 = current*np.pi*radius**2
 
             fun_val, X, Y, t = calculateFieldFunction()
 
-            fig = plt.figure(figsize=(8, 8), dpi=100)
+            fig = plt.figure(figsize=(10, 10), dpi=100)
             ax = fig.add_subplot(111)
 
             makePlot()
