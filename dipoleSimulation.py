@@ -54,7 +54,7 @@ def checkValues(values):
         radius = float(values['radius'])
         omega = float(values['omega'])
         time = int(values['time'])
-        axisLength = float(values['axisLength'])
+        axisLength = int(values['axisLength'])
         fps = 30 if values['fps30'] else 60
         function = 'magneticXZ' if values['function'] == 'Pole magnetyczne (XZ)' else 'electricXZ' if values['function'] == 'Pole elektryczne (XZ)' else 'magneticXY' if values['function'] == 'Pole magnetyczne (XY)' else 'electricXY'
         log = values['log']
@@ -80,10 +80,10 @@ def calculateFieldFunction():
     X = Rp * np.cos(Thetap)
 
     if function == "magneticXZ":
-        B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
+        B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (np.sin((np.pi - np.abs(Theta - np.pi)))/R) * np.cos(omega * (T-R/c))
         return B, X, Y, t
     elif function == "electricXZ":
-        E = ((u0 * m0 * omega ** 2)/(4 * np.pi * c)) * (np.sin(Theta)/R) * np.cos(omega * (T-R/c))
+        E = ((u0 * m0 * omega ** 2)/(4 * np.pi * c)) * (np.sin((np.pi - np.abs(Theta - np.pi)))/R) * np.cos(omega * (T-R/c))
         return E, X, Y, t
     elif function == "magneticXY":
         B = (-1) * ((u0 * m0 * omega ** 2)/(4 * np.pi * c ** 2)) * (1/R) * np.cos(omega * (T-R/c))
@@ -99,15 +99,17 @@ def makePlot():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         if log:
-            c = ax.pcolormesh(X, Y, fun_val[:, :, 0],
+            c = ax.pcolormesh(Y, X, fun_val[:, :, 0],
                         norm=SymLogNorm(linthresh=0 + fun_val.max()/100, linscale=0.1, vmin=fun_val.min(), vmax=fun_val.max()),
                         cmap='twilight', shading='auto')
             cbar = plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value", format="%.2e")
+            
+            # We set the ticks manually because the SymLogNorm class doesn't seem to have a way to set the ticks automatically
             order_of_magnitude = int(0 - np.log10(fun_val.max())) + 1
             ticks = [fun_val.min()] + [-10**i for i in range(-order_of_magnitude, -order_of_magnitude - 3, -1)] + [0] + [10**i for i in range(-order_of_magnitude, -order_of_magnitude - 3, -1)] + [fun_val.max()]
             cbar.set_ticks(ticks)
         else:
-            c = ax.pcolormesh(X, Y, fun_val[:, :, 0], cmap='twilight', shading='auto')
+            c = ax.pcolormesh(Y, X, fun_val[:, :, 0], cmap='twilight', shading='auto', vmin=fun_val.min(), vmax=fun_val.max())
             plt.colorbar(c, label=f"{function[0:-2].capitalize()} Field Value")
     plt.grid(True)
     if function == "magneticXZ" or function == "electricXZ":
@@ -141,7 +143,7 @@ def makePlot():
         plt.savefig('frames/frame0.png')
 
         for i in range(1, min(len(t), time*fps)):
-            print("Renderowanie klatek", i + 1, 'z', min(t.size, time*fps))
+            print("Renderowanie klatek", i, 'z', min(t.size, time*fps) - 1)
             window.refresh()
             c.set_array(fun_val[:, :, i].flatten())  # Update the color values
             if function == "magneticXZ" or function == "magneticXY":
@@ -149,6 +151,8 @@ def makePlot():
             elif function == "electricXZ" or function == "electricXY":
                 plt.title(f'Electric field function at t={t[i]:.2f}')
             plt.savefig(f'frames/frame{i}.png')
+        
+        plt.close()
 
         images = []
         for i in range(0, min(len(t), time*fps)):
@@ -187,14 +191,14 @@ if __name__ == '__main__':
         event, values = window.read()
         if event == sg.WIN_CLOSED:
             window.close()
-            break
+            exit()
         if checkValues(values):
             current, radius, omega, time, fps, function, mp4, axisLength, log = checkValues(values)
             m0 = current*np.pi*radius**2
 
             fun_val, X, Y, t = calculateFieldFunction()
 
-            fig = plt.figure(figsize=(10, 10), dpi=100)
+            fig = plt.figure(figsize=(8, 8), dpi=100)
             ax = fig.add_subplot(111)
 
             makePlot()
