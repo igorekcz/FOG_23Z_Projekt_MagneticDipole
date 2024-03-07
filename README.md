@@ -1,5 +1,5 @@
 # FOG_23Z_Projekt_MagneticDipole
-projekt *symulacja dipola magnetycznego* zaliczający przedmiot FOGT zaprezentowany w dniu XX.XX.2024. 
+projekt *symulacja dipola magnetycznego* zaliczający przedmiot FOGT zaprezentowany w dniu 30.01.2024. 
 
 ## Autorzy 
 - Igor Czunikin-Krasowicki
